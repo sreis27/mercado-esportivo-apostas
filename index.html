@@ -208,6 +208,28 @@ td { padding:0.65rem 1rem; vertical-align:middle; white-space:nowrap; }
 .chart-title { font-family:var(--mono); font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:1rem; }
 .chart-full { grid-column:1/-1; }
 
+/* ── Ranking de Grupos ── */
+.rank-pills { display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+.rank-pill { background:var(--s1); border:1px solid var(--border); color:var(--muted); padding:0.45rem 1rem; border-radius:10px; font-family:var(--mono); font-size:0.76rem; cursor:pointer; transition:all 0.15s; }
+.rank-pill:hover { color:var(--text); border-color:var(--accent); }
+.rank-pill.active { background:rgba(108,99,255,0.12); border-color:var(--accent); color:var(--accent); }
+.rank-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+@media (max-width:980px) { .rank-grid { grid-template-columns:1fr; } }
+.rank-list { display:flex; flex-direction:column; gap:5px; max-height:430px; overflow-y:auto; padding-right:4px; }
+.rank-list::-webkit-scrollbar { width:8px; }
+.rank-list::-webkit-scrollbar-track { background:transparent; }
+.rank-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+.rank-row { display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--s2); border-radius:8px; border-left:2px solid transparent; }
+.rank-row.top1 { border-left-color:#ffd84d; background:rgba(255,216,77,0.06); }
+.rank-row.top2 { border-left-color:#c0c0c0; background:rgba(192,192,192,0.05); }
+.rank-row.top3 { border-left-color:#cd7f32; background:rgba(205,127,50,0.05); }
+.rank-pos { font-family:var(--mono); font-size:0.85rem; width:26px; text-align:center; flex-shrink:0; color:var(--muted); }
+.rank-name { flex:1; font-size:0.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-val { font-family:var(--mono); font-size:0.82rem; flex-shrink:0; font-weight:500; }
+.rank-val.pos { color:var(--green); }
+.rank-val.neg { color:var(--red); }
+.rank-empty { color:var(--muted); font-family:var(--mono); font-size:0.78rem; padding:18px 10px; text-align:center; }
+
 /* ── Modal ── */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:200; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
@@ -301,6 +323,7 @@ td { padding:0.65rem 1rem; vertical-align:middle; white-space:nowrap; }
       <div class="nav-item" onclick="showPage('tipos_aposta')"><span class="icon">🎯</span><span>Tipos de Aposta</span></div>
       <div class="nav-item" onclick="showPage('mercados')"><span class="icon">📌</span><span>Mercados</span></div>
       <div class="nav-item" onclick="showPage('bugs_melhorias')"><span class="icon">🐛</span><span>Bugs / Melhorias</span></div>
+      <div class="nav-item" onclick="showPage('ranking_grupos')"><span class="icon">🏆</span><span>Ranking de Grupos</span></div>
     </nav>
     <div class="sidebar-footer">
       <button class="logout-btn" onclick="doLogout()">Sair</button>
@@ -558,9 +581,9 @@ async function sbDelete(table, id) {
 // ── PAGES ──────────────────────────────────────────────────
 function showPage(page) {
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  const navMap = { dashboard:0, apostas:1, tipsters:2, bookies:3, operadores:4, esportes:5, tipos_aposta:6, mercados:7, bugs_melhorias:8 };
+  const navMap = { dashboard:0, apostas:1, tipsters:2, bookies:3, operadores:4, esportes:5, tipos_aposta:6, mercados:7, bugs_melhorias:8, ranking_grupos:9 };
   document.querySelectorAll('.nav-item')[navMap[page]]?.classList.add('active');
-  const titles = { dashboard:'Dashboard', apostas:'Apostas', tipsters:'Tipsters', bookies:'Bookies', operadores:'Operadores', esportes:'Esportes', tipos_aposta:'Tipos de Aposta', mercados:'Mercados', bugs_melhorias:'Bugs / Melhorias' };
+  const titles = { dashboard:'Dashboard', apostas:'Apostas', tipsters:'Tipsters', bookies:'Bookies', operadores:'Operadores', esportes:'Esportes', tipos_aposta:'Tipos de Aposta', mercados:'Mercados', bugs_melhorias:'Bugs / Melhorias', ranking_grupos:'Ranking de Grupos' };
   document.getElementById('topbarTitle').textContent = titles[page] || page;
   document.getElementById('topbarAddBtn').style.display = page==='apostas' ? 'block' : 'none';
   const content = document.getElementById('pageContent');
@@ -568,6 +591,7 @@ function showPage(page) {
   if (page==='dashboard') renderDashboard(gFilters);
   else if (page==='apostas') renderApostas();
   else if (page==='bugs_melhorias') renderBugsMelhorias();
+  else if (page==='ranking_grupos') renderRankingGrupos();
   else renderCadastro(page);
 }
 
@@ -1908,6 +1932,106 @@ async function deleteStake(id, tipsterId, tipsterNome) {
     cache.stakes = await sbGet('stakes_historico?select=id,tipster_id,valor_reais,vigente_a_partir,criado_por&order=vigente_a_partir.desc');
     openStakesModal(tipsterId, tipsterNome);
   } catch(e) { showToast('Erro', true); }
+}
+
+// ── RANKING DE GRUPOS ──────────────────────────────────────
+window._rankPeriodo = 'tudo';
+window._rankApostas = null;
+
+async function renderRankingGrupos() {
+  const c = document.getElementById('pageContent');
+  c.innerHTML = '<div class="loading"><div class="spinner"></div>Carregando...</div>';
+  if (!cache.tipsters.length) await loadCache();
+  if (!window._rankApostas) {
+    window._rankApostas = await sbGet('apostas?select=data_evento,stake_unidades,lucro_unidades,status,tipster_id&limit=50000');
+  }
+  c.innerHTML = rankingShell();
+  drawRanking();
+}
+
+function rankingShell() {
+  const pills = [
+    ['dia','Hoje'], ['semana','Semana'], ['mes','Mês'],
+    ['3m','3 meses'], ['6m','6 meses'], ['12m','12 meses'], ['tudo','Todo período']
+  ].map(([p,l]) => `<button class="rank-pill ${window._rankPeriodo===p?'active':''}" data-p="${p}" onclick="setRankPeriodo('${p}')">${l}</button>`).join('');
+  return `
+    <div class="rank-pills">${pills}</div>
+    <div class="rank-grid">
+      <div class="chart-card"><div class="chart-title">🏆 Por Unidades</div><div class="rank-list" id="rankU"></div></div>
+      <div class="chart-card"><div class="chart-title">📈 Por ROI</div><div class="rank-list" id="rankRoi"></div></div>
+      <div class="chart-card"><div class="chart-title">💰 Por Financeiro</div><div class="rank-list" id="rankR"></div></div>
+    </div>`;
+}
+
+function setRankPeriodo(p) {
+  window._rankPeriodo = p;
+  document.querySelectorAll('.rank-pill').forEach(b => b.classList.toggle('active', b.dataset.p===p));
+  drawRanking();
+}
+
+function rankLocalISO(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function rankCutoff(p) {
+  const hoje = new Date(), d = new Date(hoje);
+  if (p==='dia')    return rankLocalISO(hoje);
+  if (p==='semana') { d.setDate(d.getDate()-6); return rankLocalISO(d); }
+  if (p==='mes')    return rankLocalISO(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+  if (p==='3m')     { d.setMonth(d.getMonth()-3);  return rankLocalISO(d); }
+  if (p==='6m')     { d.setMonth(d.getMonth()-6);  return rankLocalISO(d); }
+  if (p==='12m')    { d.setMonth(d.getMonth()-12); return rankLocalISO(d); }
+  return null; // todo período
+}
+
+function calcRankingGrupos(apostas, cutoff) {
+  const arr = cutoff ? apostas.filter(a => a.data_evento && a.data_evento >= cutoff) : apostas;
+  const map = {};
+  arr.forEach(a => {
+    const tid = a.tipster_id;
+    if (!tid) return;
+    if (!map[tid]) {
+      const t = cache.tipsters.find(x => x.id===tid);
+      map[tid] = { nome: t?.nome || 'Outros', plU:0, invU:0, plR:0, nSettled:0 };
+    }
+    if (!['PENDING'].includes(a.status)) {
+      const su = parseFloat(a.stake_unidades) || 0;
+      const lu = parseFloat(a.lucro_unidades) || 0;
+      const sv = getStakeValor(tid, a.data_evento) || 1;
+      map[tid].plU += lu;
+      map[tid].invU += su;
+      map[tid].plR += lu * sv;
+      map[tid].nSettled++;
+    }
+  });
+  return Object.values(map)
+    .filter(g => g.nSettled > 0)
+    .map(g => ({ ...g, roi: g.invU > 0 ? (g.plU / g.invU * 100) : 0 }));
+}
+
+function drawRanking() {
+  const cutoff = rankCutoff(window._rankPeriodo);
+  const grupos = calcRankingGrupos(window._rankApostas || [], cutoff);
+  renderRankList('rankU',   [...grupos].sort((a,b)=>b.plU-a.plU), g => `${g.plU>=0?'+':''}${fmtU(g.plU)}`,        g => g.plU>=0);
+  renderRankList('rankRoi', [...grupos].sort((a,b)=>b.roi-a.roi), g => `${g.roi>=0?'+':''}${g.roi.toFixed(2)}%`,  g => g.roi>=0);
+  renderRankList('rankR',   [...grupos].sort((a,b)=>b.plR-a.plR), g => `${g.plR>=0?'+':''}${fmtR(g.plR)}`,        g => g.plR>=0);
+}
+
+function renderRankList(elId, lista, valFn, posFn) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = '<div class="rank-empty">Sem dados no período</div>'; return; }
+  const medals = ['🥇','🥈','🥉'];
+  el.innerHTML = lista.map((g,i) => {
+    const pos = i<3 ? medals[i] : (i+1);
+    const topCls = i<3 ? `top${i+1}` : '';
+    const valCls = posFn(g) ? 'pos' : 'neg';
+    return `<div class="rank-row ${topCls}">
+      <span class="rank-pos">${pos}</span>
+      <span class="rank-name" title="${g.nome}">${g.nome}</span>
+      <span class="rank-val ${valCls}">${valFn(g)}</span>
+    </div>`;
+  }).join('');
 }
 
 // ── UTILS ──────────────────────────────────────────────────
